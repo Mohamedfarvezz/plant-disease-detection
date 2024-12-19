@@ -1,0 +1,150 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+
+
+# Step 1: Load Dataset
+DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+
+
+# Step 2: Data Preprocessing
+img_height, img_width = 128, 128  # Resize images to 128x128
+batch_size = 32
+
+
+# Data augmentation for training data
+datagen = ImageDataGenerator(
+    rescale=1.0/255,
+    validation_split=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True
+)
+
+
+train_generator = datagen.flow_from_directory(
+    DATASET_PATH,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode='categorical',
+    subset='training'
+)
+
+
+validation_generator = datagen.flow_from_directory(
+    DATASET_PATH,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode='categorical',
+    subset='validation'
+)
+
+
+# Model Design CNN
+model = tf.keras.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(img_height, img_width, 3)),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(train_generator.num_classes, activation='softmax')
+])
+
+
+# Compile and Train the Model
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+
+# Train the model
+history = model.fit(
+    train_generator,
+    validation_data=validation_generator,
+    epochs=10
+)
+
+
+#Evaluate the Model - Accuracy and Loss Visualization
+acc = history.history['accuracy']
+val_acc = history.history['val_accuracy']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+
+plt.figure(figsize=(12, 5))
+
+
+# Plot Training & Validation Accuracy
+plt.subplot(1, 2, 1)
+plt.plot(acc, label='Training Accuracy')
+plt.plot(val_acc, label='Validation Accuracy')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+
+
+# Plot Training & Validation Loss
+plt.subplot(1, 2, 2)
+plt.plot(loss, label='Training Loss')
+plt.plot(val_loss, label='Validation Loss')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+
+
+plt.show()
+
+
+
+
+# Get the true labels and predicted labels
+validation_generator.reset()
+Y_val = validation_generator.classes
+predictions = model.predict(validation_generator, steps=validation_generator.n // batch_size + 1)
+y_pred = np.argmax(predictions, axis=1)
+
+
+# Classification Report
+class_labels = list(validation_generator.class_indices.keys())
+print("Classification Report:\n")
+print(classification_report(Y_val, y_pred, target_names=class_labels))
+
+
+# Confusion Matrix
+conf_matrix = confusion_matrix(Y_val, y_pred)
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=class_labels, yticklabels=class_labels)
+plt.title('Confusion Matrix')
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.show()
+
+
+# Step 7: Visualizing Some of the Predictions
+fig, axes = plt.subplots(3, 3, figsize=(12, 12))
+axes = axes.flatten()
+
+
+for i in range(9):
+    img, label = validation_generator.next()
+    prediction = model.predict(img)
+    true_label = np.argmax(label[0])
+    pred_label = np.argmax(prediction[0])
+   
+    axes[i].imshow(img[0])
+    axes[i].axis('off')
+    axes[i].set_title(f"True: {class_labels[true_label]}, Pred: {class_labels[pred_label]}")
+
+
+plt.tight_layout()
+plt.show()
