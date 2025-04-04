@@ -93,7 +93,7 @@ plant-disease-detection/
 
 Run each script seperately and get accuracy and classification metrics.
 
-For grad_CAM, Use the saved model to visualise correctly classdified and misclassified images.
+For grad_CAM, Use the saved model to visualise correctly classified and misclassified images.
 
 ---
 
