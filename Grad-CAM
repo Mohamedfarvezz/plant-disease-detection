@@ -63,7 +63,7 @@ for i, path in enumerate(paths):
 # sort labels by most misclassified
 sorted_labels = sorted(misclassified_by_label.items(), key=lambda x: len(x[1]), reverse=True)
 
-print("📊 Misclassification counts per label:")
+print(" Misclassification counts per label:")
 for label, items in sorted_labels:
     print(f"  {label}: {len(items)}")
 
@@ -86,7 +86,7 @@ def make_gradcam_heatmap(img_array, class_idx):
 
 # display visualisation
 for label, samples in sorted_labels:
-    print(f"\n🔍 Visualizing top misclassified label: {label}")
+    print(f"\n Visualizing top misclassified label: {label}")
     for idx, (path, true_idx, pred_idx, original_img) in enumerate(samples[:MAX_PER_LABEL]):
         img_array, _ = preprocess_image(path)
         heatmap = make_gradcam_heatmap(img_array, pred_idx)
