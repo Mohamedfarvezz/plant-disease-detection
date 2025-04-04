@@ -17,7 +17,7 @@ MAX_PER_LABEL = 10  # Number of Grad-CAM images per misclassified label
 
 
 model = load_model(MODEL_PATH)
-print("✅ Model loaded successfully.")
+print("Model loaded successfully.")
 
 # load image paths and label
 def list_image_paths_and_labels(root_dir):
