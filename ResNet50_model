@@ -1,0 +1,309 @@
+# Transfer learning model Resnet50 (Fixed version)
+
+
+import os
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image, ImageEnhance, ImageOps, ImageFilter
+import tensorflow as tf
+from tensorflow.keras.applications import ResNet50
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
+import math
+import seaborn as sns
+
+
+
+
+
+
+DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+IMG_HEIGHT, IMG_WIDTH = 224, 224
+BATCH_SIZE = 32
+EPOCHS = 3
+NUM_FOLDS = 3
+RANDOM_SEED = 42
+ADVANCED_AUG = True
+
+
+
+
+def list_image_paths_and_labels(root_dir):
+   
+    paths = []
+    labels = []
+
+
+    for class_name in os.listdir(root_dir):
+        class_dir = os.path.join(root_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+        for fname in os.listdir(class_dir):
+            if fname.lower().endswith(('.png', '.jpg', '.jpeg')):
+                paths.append(os.path.join(class_dir, fname))
+                labels.append(class_name)
+
+
+    return np.array(paths), np.array(labels)
+
+
+
+
+all_paths, all_labels_str = list_image_paths_and_labels(DATASET_PATH)
+print(f"Found {len(all_paths)} images total.")
+
+
+# Encode the string labels into numeric
+label_encoder = LabelEncoder()
+all_labels = label_encoder.fit_transform(all_labels_str)
+num_classes = len(label_encoder.classes_)
+print("Classes found:", label_encoder.classes_)
+
+
+#advanced augmentation
+def random_horizontal_flip(image):
+    if random.random() < 0.5:
+        image = ImageOps.mirror(image)
+    return image
+
+
+def random_rotation(image, max_angle=20):
+    angle = random.uniform(-max_angle, max_angle)
+    return image.rotate(angle, expand=False, fillcolor=None)
+
+
+def random_brightness(image, low=0.8, high=1.2):
+    factor = random.uniform(low, high)
+    enhancer = ImageEnhance.Brightness(image)
+    return enhancer.enhance(factor)
+
+
+def random_color_jitter(image, sat_low=0.8, sat_high=1.2):
+    factor = random.uniform(sat_low, sat_high)
+    enhancer = ImageEnhance.Color(image)
+    return enhancer.enhance(factor)
+
+
+def random_blur(image):
+    if random.random() < 0.5:  # 50% chance
+        radius = random.uniform(0, 1.0)
+        return image.filter(ImageFilter.GaussianBlur(radius=radius))
+    return image
+
+
+def random_noise(image, noise_range=0.02):
+    arr = np.array(image, dtype=np.float32) / 255.0
+    if random.random() < 0.5:
+        noise = np.random.normal(0, noise_range, arr.shape).astype(np.float32)
+        arr = arr + noise
+        arr = np.clip(arr, 0.0, 1.0)
+    # Convert back to PIL
+    arr = (arr*255).astype(np.uint8)
+    return Image.fromarray(arr, mode='RGB')
+
+
+def manual_augment(image):
+   
+    image = random_horizontal_flip(image)
+    image = random_rotation(image, max_angle=20)
+    image = random_brightness(image, 0.8, 1.2)
+    image = random_color_jitter(image, 0.8, 1.2)
+    image = random_blur(image)
+    image = random_noise(image, noise_range=0.02)
+    return image
+
+
+class CustomeKFoldGenerator(tf.keras.utils.Sequence):
+
+
+    def __init__(self, paths, labels, batch_size, indices, augment=False, shuffle=True):
+        self.paths = paths
+        self.labels = labels
+        self.batch_size = batch_size
+        self.indices = np.array(indices)
+        self.augment = augment
+        self.shuffle = shuffle
+        self.on_epoch_end()
+
+
+    def __len__(self):
+        return math.ceil(len(self.indices) / self.batch_size)
+
+
+    def __getitem__(self, idx):
+        batch_indices = self.indices[idx*self.batch_size : (idx+1)*self.batch_size]
+        batch_paths = self.paths[batch_indices]
+        batch_labels = self.labels[batch_indices]
+
+
+        batch_images = []
+        for p in batch_paths:
+            with Image.open(p).convert('RGB') as img:
+                img = img.resize((IMG_WIDTH, IMG_HEIGHT))
+                if self.augment:
+                    # apply advanced augmentation
+                    img = manual_augment(img)
+                #convert to np array in [0..1]
+                arr = np.array(img, dtype=np.float32) / 255.0
+                batch_images.append(arr)
+
+
+        batch_images = np.array(batch_images, dtype=np.float32)
+        return batch_images, batch_labels
+
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+
+
+
+def create_transfer_model():
+    model = ResNet50(
+        weights='imagenet',
+        include_top=False,
+        input_shape=(IMG_HEIGHT, IMG_WIDTH, 3)
+    )
+
+
+    for layer in model.layers[:-50]:
+        layer.trainable = False
+
+
+    x = tf.keras.layers.GlobalAveragePooling2D()(model.output)
+    x = tf.keras.layers.Dense(128, activation='relu')(x)
+    output = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+
+
+    model = tf.keras.Model(model.input, outputs = output)
+
+
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    return model
+
+
+from sklearn.model_selection import StratifiedKFold
+
+
+skf = StratifiedKFold(n_splits=NUM_FOLDS, shuffle=True, random_state=RANDOM_SEED)
+
+
+fold_results = []
+
+
+for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_labels), start=1):
+    print(f"\n=== Fold {fold_index}/{NUM_FOLDS} ===")
+
+
+    train_gen = CustomeKFoldGenerator(
+        paths=all_paths,
+        labels=all_labels,
+        batch_size=BATCH_SIZE,
+        indices=train_idx,
+        augment=ADVANCED_AUG, # advanced augmentation on training
+        shuffle=True
+    )
+    val_gen = CustomeKFoldGenerator(
+        paths=all_paths,
+        labels=all_labels,
+        batch_size=BATCH_SIZE,
+        indices=val_idx,
+        augment=False,   # no augmentation in validation
+        shuffle=False
+    )
+
+
+    model = create_transfer_model()
+
+
+    history = model.fit(
+        train_gen,
+        validation_data=val_gen,
+        epochs=EPOCHS,
+        verbose=1
+    )
+
+
+    # Plot training and validation accuracy/loss
+    acc = history.history['accuracy']
+    val_acc = history.history['val_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+
+
+    plt.figure(figsize=(12,5))
+    plt.subplot(1, 2, 1)
+    plt.plot(acc, label='Train Acc')
+    plt.plot(val_acc, label='Val Acc')
+    plt.title(f'Fold {fold_index} - Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+
+
+    plt.subplot(1, 2, 2)
+    plt.plot(loss, label='Train Loss')
+    plt.plot(val_loss, label='Val Loss')
+    plt.title(f'Fold {fold_index} - Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
+
+
+    # Evaluate confusion matrix + classification report
+    val_predictions = []
+    val_true = []
+    for bx, by in val_gen:
+        preds = model.predict(bx)
+        val_predictions.extend(np.argmax(preds, axis=1))
+        val_true.extend(by)
+
+
+    val_predictions = np.array(val_predictions)
+    val_true = np.array(val_true)
+
+
+    from sklearn.metrics import classification_report, confusion_matrix
+    print(f"\nFold {fold_index} - Classification Report:")
+    print(classification_report(val_true, val_predictions,
+                                target_names=label_encoder.classes_))
+
+
+    conf_mat = confusion_matrix(val_true, val_predictions)
+    plt.figure(figsize=(10,8))
+    sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues',
+                xticklabels=label_encoder.classes_, yticklabels=label_encoder.classes_)
+    plt.title(f'Fold {fold_index} - Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+
+    final_val_acc = val_acc[-1]
+    final_val_loss = val_loss[-1]
+    fold_results.append((final_val_acc, final_val_loss))
+
+
+# Summarize folds
+accs = [r[0] for r in fold_results]
+losses = [r[1] for r in fold_results]
+mean_acc = np.mean(accs)
+std_acc = np.std(accs)
+mean_loss = np.mean(losses)
+
+
+print("\nCross-Validation Summary:")
+for i, (a, l) in enumerate(fold_results, start=1):
+    print(f" Fold {i}: Val Accuracy={a:.4f}, Val Loss={l:.4f}")
+
+
+print(f"\nMean Val Accuracy: {mean_acc:.4f} ± {std_acc:.4f}")
+print(f"Mean Val Loss: {mean_loss:.4f}")
