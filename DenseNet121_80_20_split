@@ -1,0 +1,271 @@
+# DenseNet Transfer Learning with 80/20 Train/Val Split
+
+
+import os
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image, ImageEnhance, ImageOps, ImageFilter
+import tensorflow as tf
+from tensorflow.keras.applications import DenseNet121
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
+import math
+import seaborn as sns
+
+
+
+
+DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+IMG_HEIGHT, IMG_WIDTH = 224, 224
+BATCH_SIZE = 32
+EPOCHS = 10
+RANDOM_SEED = 42
+ADVANCED_AUG = True  
+
+
+
+
+def list_image_paths_and_labels(root_dir):
+    paths = []
+    labels = []
+    for class_name in os.listdir(root_dir):
+        class_dir = os.path.join(root_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+        for fname in os.listdir(class_dir):
+            if fname.lower().endswith(('.png', '.jpg', '.jpeg')):
+                paths.append(os.path.join(class_dir, fname))
+                labels.append(class_name)
+    return np.array(paths), np.array(labels)
+
+
+all_paths, all_labels_str = list_image_paths_and_labels(DATASET_PATH)
+print(f"Found {len(all_paths)} images total.")
+
+
+# Encode the string labels into numeric
+label_encoder = LabelEncoder()
+all_labels = label_encoder.fit_transform(all_labels_str)
+num_classes = len(label_encoder.classes_)
+print("Classes found:", label_encoder.classes_)
+print("Number of classes:", num_classes)
+
+
+#advanced augmentation
+def random_horizontal_flip(image):
+    if random.random() < 0.5:
+        image = ImageOps.mirror(image)
+    return image
+
+
+def random_rotation(image, max_angle=20):
+    angle = random.uniform(-max_angle, max_angle)
+    return image.rotate(angle, expand=False, fillcolor=None)
+
+
+def random_brightness(image, low=0.8, high=1.2):
+    factor = random.uniform(low, high)
+    enhancer = ImageEnhance.Brightness(image)
+    return enhancer.enhance(factor)
+
+
+def random_color_jitter(image, sat_low=0.8, sat_high=1.2):
+    factor = random.uniform(sat_low, sat_high)
+    enhancer = ImageEnhance.Color(image)
+    return enhancer.enhance(factor)
+
+
+def random_blur(image):
+    if random.random() < 0.5:
+        radius = random.uniform(0, 1.0)
+        return image.filter(ImageFilter.GaussianBlur(radius=radius))
+    return image
+
+
+def random_noise(image, noise_range=0.02):
+    arr = np.array(image, dtype=np.float32) / 255.0
+    if random.random() < 0.5:
+        noise = np.random.normal(0, noise_range, arr.shape).astype(np.float32)
+        arr = arr + noise
+        arr = np.clip(arr, 0.0, 1.0)
+    arr = (arr*255).astype(np.uint8)
+    return Image.fromarray(arr, mode='RGB')
+
+
+def manual_augment(image):
+    image = random_horizontal_flip(image)
+    image = random_rotation(image, max_angle=20)
+    image = random_brightness(image, 0.8, 1.2)
+    image = random_color_jitter(image, 0.8, 1.2)
+    image = random_blur(image)
+    image = random_noise(image, noise_range=0.02)
+    return image
+
+
+
+
+class SimpleGenerator(tf.keras.utils.Sequence):
+    def __init__(self, paths, labels, batch_size, augment=False, shuffle=True):
+        self.paths = np.array(paths)
+        self.labels = np.array(labels)
+        self.batch_size = batch_size
+        self.augment = augment
+        self.shuffle = shuffle
+        self.indices = np.arange(len(self.paths))
+        self.on_epoch_end()
+
+
+    def __len__(self):
+        return math.ceil(len(self.paths) / self.batch_size)
+
+
+    def __getitem__(self, idx):
+        batch_indices = self.indices[idx*self.batch_size : (idx+1)*self.batch_size]
+        batch_paths = self.paths[batch_indices]
+        batch_labels = self.labels[batch_indices]
+       
+        batch_images = []
+        for p in batch_paths:
+            with Image.open(p).convert('RGB') as img:
+                img = img.resize((IMG_HEIGHT, IMG_WIDTH))
+                if self.augment:
+                    img = manual_augment(img)
+                arr = np.array(img, dtype=np.float32) / 255.0
+                batch_images.append(arr)
+
+
+        batch_images = np.array(batch_images, dtype=np.float32)
+        return batch_images, batch_labels
+
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+
+#densenet model
+def create_densenet_model():
+    base_model = DenseNet121(
+        weights='imagenet',
+        include_top=False,
+        input_shape=(IMG_HEIGHT, IMG_WIDTH, 3)
+    )
+
+
+    for layer in base_model.layers[:-50]:
+        layer.trainable = False
+
+
+    x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
+    x = tf.keras.layers.Dense(128, activation='relu')(x)
+    output = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+
+
+    model = tf.keras.Model(inputs=base_model.input, outputs=output)
+
+
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    return model
+
+
+#80/20 split
+indices = np.arange(len(all_paths))
+train_idx, val_idx = train_test_split(
+    indices, test_size=0.20, random_state=RANDOM_SEED, stratify=all_labels
+)
+print(f"Train size: {len(train_idx)}, Val size: {len(val_idx)}")
+
+
+train_gen = SimpleGenerator(
+    paths=all_paths[train_idx],
+    labels=all_labels[train_idx],
+    batch_size=BATCH_SIZE,
+    augment=ADVANCED_AUG,
+    shuffle=True
+)
+
+
+val_gen = SimpleGenerator(
+    paths=all_paths[val_idx],
+    labels=all_labels[val_idx],
+    batch_size=BATCH_SIZE,
+    augment=False,
+    shuffle=False
+)
+
+
+model = create_densenet_model()
+
+
+history = model.fit(
+    train_gen,
+    validation_data=val_gen,
+    epochs=EPOCHS,
+    verbose=1
+)
+
+
+model.save("my_densenet_model_80/20.h5")
+print("Model saved successfully.")
+
+
+# Plot
+acc = history.history['accuracy']
+val_acc = history.history['val_accuracy']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+
+plt.figure(figsize=(12,5))
+plt.subplot(1, 2, 1)
+plt.plot(acc, label='Train Acc')
+plt.plot(val_acc, label='Val Acc')
+plt.title('Train vs. Val Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+
+
+plt.subplot(1, 2, 2)
+plt.plot(loss, label='Train Loss')
+plt.plot(val_loss, label='Val Loss')
+plt.title('Train vs. Val Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+
+# Classification Report + Confusion Matrix
+val_predictions = []
+val_true = []
+for bx, by in val_gen:
+    preds = model.predict(bx)
+    val_predictions.extend(np.argmax(preds, axis=1))
+    val_true.extend(by)
+
+
+val_predictions = np.array(val_predictions)
+val_true = np.array(val_true)
+
+
+print("\nClassification Report (80/20):")
+print(classification_report(val_true, val_predictions,
+                            target_names=label_encoder.classes_))
+
+
+cm = confusion_matrix(val_true, val_predictions)
+plt.figure(figsize=(10,8))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=label_encoder.classes_,
+            yticklabels=label_encoder.classes_)
+plt.title('Confusion Matrix (80/20)')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.show()
