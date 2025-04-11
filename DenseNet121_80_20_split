@@ -18,6 +18,8 @@ import seaborn as sns
 
 
 DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+
+#set parameters
 IMG_HEIGHT, IMG_WIDTH = 224, 224
 BATCH_SIZE = 32
 EPOCHS = 10
@@ -26,7 +28,7 @@ ADVANCED_AUG = True
 
 
 
-
+# function to list image paths and labels from dataset 
 def list_image_paths_and_labels(root_dir):
     paths = []
     labels = []
@@ -40,7 +42,7 @@ def list_image_paths_and_labels(root_dir):
                 labels.append(class_name)
     return np.array(paths), np.array(labels)
 
-
+#load all image paths and labels
 all_paths, all_labels_str = list_image_paths_and_labels(DATASET_PATH)
 print(f"Found {len(all_paths)} images total.")
 
@@ -105,7 +107,7 @@ def manual_augment(image):
 
 
 
-
+# simple generator class for batch loading
 class SimpleGenerator(tf.keras.utils.Sequence):
     def __init__(self, paths, labels, batch_size, augment=False, shuffle=True):
         self.paths = np.array(paths)
@@ -242,7 +244,7 @@ plt.legend()
 plt.show()
 
 
-# Classification Report + Confusion Matrix
+# get validation predictions
 val_predictions = []
 val_true = []
 for bx, by in val_gen:
@@ -260,6 +262,7 @@ print(classification_report(val_true, val_predictions,
                             target_names=label_encoder.classes_))
 
 
+# plot confusion matrix
 cm = confusion_matrix(val_true, val_predictions)
 plt.figure(figsize=(10,8))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
