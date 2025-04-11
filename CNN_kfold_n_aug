@@ -15,8 +15,9 @@ import seaborn as sns
 
 
 
-
 DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+
+#set parameters
 IMG_HEIGHT, IMG_WIDTH = 128, 128
 BATCH_SIZE = 32
 EPOCHS = 5
@@ -26,7 +27,7 @@ ADVANCED_AUG = True
 
 
 
-
+# function to list image paths and labels
 def list_image_paths_and_labels(root_dir):
    
     paths = []
@@ -47,12 +48,12 @@ def list_image_paths_and_labels(root_dir):
 
 
 
-
+#load all image paths and labels
 all_paths, all_labels_str = list_image_paths_and_labels(DATASET_PATH)
 print(f"Found {len(all_paths)} images total.")
 
 
-# Encode the string labels into numeric
+# Encode the string labels into numeric labels
 label_encoder = LabelEncoder()
 all_labels = label_encoder.fit_transform(all_labels_str)
 num_classes = len(label_encoder.classes_)
@@ -112,6 +113,7 @@ def manual_augment(image):
     return image
 
 
+# Custom Kfold generator class for batch loading
 class CustomeKFoldGenerator(tf.keras.utils.Sequence):
 
 
@@ -157,7 +159,7 @@ class CustomeKFoldGenerator(tf.keras.utils.Sequence):
 
 
 
-
+# create baseline model
 def create_baseline_model():
     model = tf.keras.Sequential([
         tf.keras.layers.Conv2D(32, (3, 3), activation='relu',
@@ -186,16 +188,17 @@ def create_baseline_model():
 
 
 
-
+# stratified kfold cross validation
 from sklearn.model_selection import StratifiedKFold
 
 
 skf = StratifiedKFold(n_splits=NUM_FOLDS, shuffle=True, random_state=RANDOM_SEED)
 
 
+#to store fold results
 fold_results = []
 
-
+#loop over each fold
 for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_labels), start=1):
     print(f"\n=== Fold {fold_index}/{NUM_FOLDS} ===")
 
@@ -256,7 +259,7 @@ for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_label
     plt.show()
 
 
-    # Evaluate confusion matrix + classification report
+    # get validation prediction
     val_predictions = []
     val_true = []
     for bx, by in val_gen:
@@ -284,7 +287,7 @@ for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_label
     plt.ylabel('True')
     plt.show()
 
-
+ 
     final_val_acc = val_acc[-1]
     final_val_loss = val_loss[-1]
     fold_results.append((final_val_acc, final_val_loss))
