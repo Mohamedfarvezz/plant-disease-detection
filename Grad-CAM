@@ -9,8 +9,9 @@ from tensorflow.keras.models import load_model
 from sklearn.preprocessing import LabelEncoder
 from collections import defaultdict, Counter
 
-
+# saved densenet model
 MODEL_PATH = "my_densenet_model_80/20.h5"
+
 DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
 IMG_SIZE = (224, 224)
 MAX_PER_LABEL = 10  # Number of Grad-CAM images per misclassified label
@@ -19,7 +20,7 @@ MAX_PER_LABEL = 10  # Number of Grad-CAM images per misclassified label
 model = load_model(MODEL_PATH)
 print("Model loaded successfully.")
 
-# load image paths and label
+# load image paths and labels
 def list_image_paths_and_labels(root_dir):
     paths = []
     labels = []
@@ -38,17 +39,17 @@ paths, labels_str = list_image_paths_and_labels(DATASET_PATH)
 label_encoder = LabelEncoder()
 labels = label_encoder.fit_transform(labels_str)
 
-
+# function to preprocess the image for model prediction
 def preprocess_image(img_path):
     img = image.load_img(img_path, target_size=IMG_SIZE)
     img_array = image.img_to_array(img) / 255.0
     return np.expand_dims(img_array, axis=0), img
 
 
-# find misprediction and track per label
-
+# dictionary to store misclassified images grouped by true label
 misclassified_by_label = defaultdict(list)
 
+# loop through images and check for misclassifications
 for i, path in enumerate(paths):
     img_array, original_img = preprocess_image(path)
     prediction = model.predict(img_array, verbose=0)
@@ -74,6 +75,7 @@ grad_model = tf.keras.models.Model(
     [model.get_layer(last_conv_layer_name).output, model.output]
 )
 
+# function to compute Gradcam heatmap
 def make_gradcam_heatmap(img_array, class_idx):
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_array)
@@ -93,8 +95,11 @@ for label, samples in sorted_labels:
         heatmap_resized = cv2.resize(heatmap, IMG_SIZE)
         heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
 
+        # load original image using opencv for overlay
         img_cv2 = cv2.imread(path)
         img_cv2 = cv2.resize(img_cv2, IMG_SIZE)
+
+        # overlay heatmap 
         superimposed_img = cv2.addWeighted(img_cv2, 0.6, heatmap_color, 0.4, 0)
 
         plt.figure(figsize=(12, 4))
