@@ -20,6 +20,8 @@ import seaborn as sns
 
 
 DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+
+# set parameters
 IMG_HEIGHT, IMG_WIDTH = 224, 224
 BATCH_SIZE = 32
 EPOCHS = 10
@@ -29,7 +31,7 @@ ADVANCED_AUG = True
 
 
 
-
+# function to list image paths and labels
 def list_image_paths_and_labels(root_dir):
    
     paths = []
@@ -50,7 +52,7 @@ def list_image_paths_and_labels(root_dir):
 
 
 
-
+# load all image oaths and labels
 all_paths, all_labels_str = list_image_paths_and_labels(DATASET_PATH)
 print(f"Found {len(all_paths)} images total.")
 
@@ -114,7 +116,7 @@ def manual_augment(image):
     image = random_noise(image, noise_range=0.02)
     return image
 
-
+# kfold generator class for batch loading
 class CustomeKFoldGenerator(tf.keras.utils.Sequence):
 
 
@@ -191,13 +193,13 @@ def create_transfer_model():
 
 from sklearn.model_selection import StratifiedKFold
 
-
+# stratified kfold cross validation
 skf = StratifiedKFold(n_splits=NUM_FOLDS, shuffle=True, random_state=RANDOM_SEED)
 
-
+# to store fold results
 fold_results = []
 
-
+# loop over each fold
 for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_labels), start=1):
     print(f"\n=== Fold {fold_index}/{NUM_FOLDS} ===")
 
@@ -258,7 +260,7 @@ for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_label
     plt.show()
 
 
-    # Evaluate confusion matrix + classification report
+    # get validation predictions
     val_predictions = []
     val_true = []
     for bx, by in val_gen:
