@@ -20,6 +20,8 @@ import seaborn as sns
 
 
 DATASET_PATH = r"C:\Users\farve\OneDrive\Downloads\archive\plantvillage dataset\color"
+
+# set parameters
 IMG_HEIGHT, IMG_WIDTH = 224, 224
 BATCH_SIZE = 32
 EPOCHS = 3
@@ -29,7 +31,7 @@ ADVANCED_AUG = True
 
 
 
-
+# function to list all image paths and labels
 def list_image_paths_and_labels(root_dir):
    
     paths = []
@@ -115,6 +117,7 @@ def manual_augment(image):
     return image
 
 
+# custom kfold generator class for batch loading
 class CustomeKFoldGenerator(tf.keras.utils.Sequence):
 
 
@@ -258,7 +261,7 @@ for fold_index, (train_idx, val_idx) in enumerate(skf.split(all_paths, all_label
     plt.show()
 
 
-    # Evaluate confusion matrix + classification report
+    # get validation predictions
     val_predictions = []
     val_true = []
     for bx, by in val_gen:
